@@ -3,6 +3,9 @@ import { existsSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+/** Matches a fully qualified path on the host platform: POSIX (`/...`), Windows drive (`C:\...` / `C:/...`), or UNC (`\\...`). */
+export const fullyQualifiedPath = process.platform === 'win32' ? /^([A-Za-z]:[\\/]|\\\\)/ : /^\//
+
 let cached: string | undefined
 export function packageRoot(): string {
   if (cached) return cached

@@ -224,15 +224,21 @@ async function readStream(ctx: SourceContext, round: Round, id: string, path: st
   for (const item of items) {
     // Stopping mid-stream aborts before advancing the cursor so unread items are retried.
     if (stopped(ctx, round)) throw new Error('The GitHub Source stopped during the poll')
-    if (sameName(item.user.login, login)) continue
+    const self = sameName(item.user.login, login)
     if (id === 'issues') {
       const issue = IssueSchema.safeParse(item)
       const pr = issue.success && !!issue.data.pull_request
       if (!issue.success || !fresh(issue.data.created_at, pr ? 'pulls' : 'issues')) continue
-      await ctx.receive(pr ? pullTrigger(issue.data, login) : issueTrigger(issue.data, login))
+      // An Issue the agent's own account opened is read as a person's request, so work can be ordered from it. A pull
+      // request it opened is not: the agent opens one per ticket, and reading it would start a ticket from a ticket.
+      if (self && pr) continue
+      const trigger = pr ? pullTrigger(issue.data, login) : issueTrigger(issue.data, login)
+      await ctx.receive(self ? { ...trigger, human: true } : trigger)
       nameThread(ctx, issue.data.number, issue.data.title)
       continue
     }
+    // Comments the agent wrote are still skipped, so its replies never become requests.
+    if (self) continue
     const number = Number(/\/(?:issues|pulls)\/(\d+)$/.exec((id === 'comments' ? item.issue_url : item.pull_request_url) ?? '')?.[1])
     if (!number || !fresh(item.updated_at ?? item.created_at, 'comments')) continue
     const isPr = id === 'review-comments' || /\/pull\//.test(item.html_url ?? '')
